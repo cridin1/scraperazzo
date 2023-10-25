@@ -3,12 +3,9 @@ import logging as lg
 import time
 import os
 import argparse
-import wget
+import requests
 from datetime import datetime
 
-lg.basicConfig(format='%(asctime)s - %(message)s', 
-               datefmt='%d-%b-%y %H:%M:%S',
-               level=lg.INFO)
 
 def walking_for_files(repo, path, file_type) -> []:
     files = []
@@ -18,7 +15,7 @@ def walking_for_files(repo, path, file_type) -> []:
         if(elem.type == "dir"):
             files += walking_for_files(repo, elem.path, file_type)
         elif(elem.type == "file" and file_type in elem.name.split(".")[-1]):
-            lg.info(f" Found file in {repo.full_name} : {elem.name}")
+            lg.debug(f" Found file in {repo.full_name} : {elem.name}")
             files.append(elem)
 
     return files
@@ -49,6 +46,7 @@ if __name__ == "__main__":
     QUERY = args.QUERY
     FILE_TYPE = args.FILE_TYPE
     VERBOSE = args.verbose
+    CURRENT_TIME_SET = True
 
     if(VERBOSE):
         lg.getLogger().setLevel(lg.DEBUG)
@@ -59,31 +57,76 @@ if __name__ == "__main__":
     if(not(os.path.exists(OUTPUT_DIR))):
        os.mkdir(OUTPUT_DIR)
     
-    end_time = time.time()
-    annata = 3600 * 24 * 365
-    start_time = end_time - annata * 10 #searching for repos in 10 years (?)
-
-    start_time_str = datetime.utcfromtimestamp(start_time).strftime("%Y-%m-%d")
-    end_time_str = datetime.utcfromtimestamp(end_time).strftime("%Y-%m-%d")
-
-    query = f"{QUERY} created:{start_time_str}..{end_time_str}"
-
+    if(not(os.path.exists("./logs"))):
+       os.mkdir("./logs")
+       
+    if(not(os.path.exists("current_time.txt"))):
+        CURRENT_TIME_SET = False
+        #creating file
+        fp = open("current_time.txt", "x")
+        fp.close()
+    else:
+        fp = open("current_time.txt", "r")
+        end_time_from_file = int(fp.read().strip())
+        fp.close()
+       
+    lg.basicConfig(format='%(asctime)s - %(message)s', 
+               datefmt='%d-%b-%y %H:%M:%S',
+               level=lg.INFO,
+               filename="./logs/log_scraperazzo.txt")
+    
+    end_time = int(time.time()) if not CURRENT_TIME_SET else end_time_from_file
+    
+    giorni = 3600*24*15 #every 15 days search for repos
+    start_time = end_time - giorni #searching for repos in 10 years (?)
+    
     g = github_login(TOKEN_PATH)
+    
+    for i in range(240):
+        try: 
+            start_time_str = datetime.utcfromtimestamp(start_time).strftime("%Y-%m-%d")
+            end_time_str = datetime.utcfromtimestamp(end_time).strftime("%Y-%m-%d")
 
-    result = g.search_repositories(query)
-    lg.info(f"In range {start_time_str} -> {end_time_str} found #Repos: {result.totalCount}")
+            query = f"{QUERY} created:{start_time_str}..{end_time_str}"
+            
+            lg.info(f"Current end_time {end_time}")
+            
+            with open("current_time.txt", "w") as fp:
+                fp.write(str(end_time))
+                fp.close()
+            
+            start_time -= giorni
+            end_time -= giorni
+            
+            result = g.search_repositories(query)
+            
+            lg.info(f"In range {start_time_str} -> {end_time_str} found #Repos: {result.totalCount}")
+            
+            for repo in result:
+                
+                new_repo_path = os.path.join(OUTPUT_DIR,repo.name)
+                
+                if(os.path.exists(new_repo_path)):
+                    continue
+                else:
+                    os.mkdir(new_repo_path)
+                
+                lg.info(f"Searching in  {repo.full_name}")
 
-    for repo in result:
-        lg.info(f"Searching in  {repo.full_name}")
-        new_repo_path = os.path.join(OUTPUT_DIR,repo.name)
-
-        if(os.path.exists(new_repo_path)):
-            continue
-        else:
-            os.mkdir(new_repo_path)
-
-        founded = walking_for_files(repo,".",FILE_TYPE)
-        for elem in founded:
-            filename = wget.download(url = elem.download_url, out = os.path.join(new_repo_path, elem.name))
+                founded = walking_for_files(repo,".",FILE_TYPE)
+                for elem in founded:
+                    try:
+                        file_retrieved = requests.get(elem.download_url)
+                        with open(os.path.join(new_repo_path, elem.name), 'wb') as f:
+                            f.write(file_retrieved.content)
+                        f.close()
+                        
+                    except Exception as e:
+                        lg.exception(f"Error in retrieving the file {e} {elem.download_url}")
+                        
         
+        except Exception as e:
+            lg.exception(f"Exception thrown {e}, sleeping for 60 sec...")
+            time.sleep(60)
+            
         
