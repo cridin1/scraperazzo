@@ -1,4 +1,5 @@
-# scraperazzo -> extracting only specific files from github 
+# scraperazzo 
+Scraper for extracting only specific FILE_TYPE from github, without cloning the entire repos. Install the requirements with pip. To execute the scraperazzo, you need a Github developer token.
 
 ```
 python scraper.py -h
